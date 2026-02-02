@@ -51,10 +51,10 @@ func (r *Runner) WriteTfvars(rancherURL, rancherToken, k3sVersion, clusterName s
 	tfvarsPath := filepath.Join(r.WorkDir, "terraform.tfvars")
 
 	content := fmt.Sprintf(`rancher_url = "%s"
-	rancher_token = "%s"
-	k3s_version = "%s"
-	cluster_name = "%s"
-	`, rancherURL, rancherToken, k3sVersion, clusterName)
+rancher_token = "%s"
+k3s_version = "%s"
+cluster_name = "%s"
+`, rancherURL, rancherToken, k3sVersion, clusterName)
 
 	for key, value := range providerVars {
 		content += fmt.Sprintf(`%s = "%s"`, key, value)

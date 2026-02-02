@@ -7,14 +7,17 @@ import (
 	"os"
 	"os/signal"
 	"rajeskio/rancher-tests/pkg/config"
+	"rajeskio/rancher-tests/pkg/kubectl"
 	"rajeskio/rancher-tests/pkg/rancher"
 	"rajeskio/rancher-tests/pkg/terraform"
+	"strings"
 	"syscall"
 )
 
 func main() {
 
 	clusterNameFlag := flag.String("cluster-name", "", "Cluster name (default: rancher-test)")
+	manifestPath := flag.String("manifest", "manifests/nginx.yaml", "Path to test manifest")
 	//destroyFlag := flag.Bool("destroy", false, "Destroy cluster after tests")
 	flag.Parse()
 
@@ -25,7 +28,7 @@ func main() {
 		clusterName = "rancher-test"
 		fmt.Println("  Using default cluster name: rancher-test")
 		fmt.Println("   Use --cluster-name flag to specify a different name")
-		fmt.Println("   Example: go run cmd/main.go --cluster-name my-test\n")
+		fmt.Println("   Example: go run cmd/main.go --cluster-name my-test")
 	}
 
 	_, cancel := context.WithCancel(context.Background())
@@ -112,12 +115,77 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Printf("Cluster ID: %s\n", outputs.ClusterID)
-	fmt.Printf("Cluster Name: %s\n", outputs.ClusterName)
-	fmt.Printf("Provider: %s\n", outputs.Provider)
+	fmt.Println("\n=== Step 8: Getting the kubeconfig ===")
+	kubeconfig, err := client.GetKubeconfig(outputs.ClusterID)
+	if err != nil {
+		fmt.Println("Error:", err)
+		fmt.Println("Cluster created but couldn't get kubeconfig")
+		os.Exit(1)
+	}
 
-	fmt.Println("\n Cluster created successfully!")
-	fmt.Printf("\nTo destroy: cd terraform/%s && terraform destroy\n", cfg.Provider)
+	fmt.Println(" kubeconfig obtained")
+
+	fmt.Println("\n=== Step 9: Setting up kubectl ===")
+	k8s, err := kubectl.NewRunner(kubeconfig)
+	if err != nil {
+		fmt.Println("Error:", err)
+		os.Exit(1)
+	}
+	defer k8s.Cleanup()
+
+	fmt.Println("\n===Step 10: Deplying test application ===")
+	if err := k8s.Apply(*manifestPath); err != nil {
+		fmt.Println("Error:", err)
+		os.Exit(1)
+	}
+	fmt.Println("Application deployed")
+
+	fmt.Println("\n===Step 11: Waiting for pod to be ready ===")
+	pods, err := k8s.GetPods("test-app", "app=nginx")
+	if err != nil || len(pods) == 0 {
+		fmt.Println("Error: No pods found")
+		os.Exit(1)
+	}
+
+	fmt.Printf("Found pod: %s\n", pods[0])
+	if err := k8s.WaitForPod("test-app", pods[0], 120); err != nil {
+		fmt.Println("Error:", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("\n=== Step 12: Testing pod logs ===")
+	logs, err := k8s.Logs("test-app", pods[0], 10)
+	if err != nil {
+		fmt.Println("Error:", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("logs retrieved (%d bytes)\n", len(logs))
+	fmt.Println("First few lines:")
+	fmt.Println(logs)
+
+	fmt.Println("\n=== Step 13: Testing pod exec ===")
+	output, err := k8s.Exec("test-app", pods[0], []string{"nginx", "-v"})
+	if err != nil {
+		fmt.Println("Error:", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Exec successful: %s\n", output)
+
+	fmt.Println("\n" + strings.Repeat("=", 50))
+	fmt.Println("ALL TESTS PASSED!")
+	fmt.Println(strings.Repeat("=", 50))
+	fmt.Printf("\nCluster: %s\n", clusterName)
+	fmt.Printf("Cluster ID: %s\n", outputs.ClusterID)
+	fmt.Printf("Provider: %s\n", outputs.Provider)
+	fmt.Println("\nTests completed:")
+	fmt.Println("  Cluster provisioning")
+	fmt.Println("  Kubeconfig access")
+	fmt.Println("  Application deployment")
+	fmt.Println("  Pod logs")
+	fmt.Println("  Pod exec")
+	fmt.Println("\nTo destroy:")
+	fmt.Printf("  go run cmd/main.go --cluster-name %s --destroy\n", clusterName)
 
 }
 
