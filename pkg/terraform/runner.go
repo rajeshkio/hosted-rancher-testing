@@ -73,8 +73,8 @@ func (r *Runner) Apply() error {
 	cmd.Dir = r.WorkDir
 
 	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
 
 	fmt.Println("Running terraform apply (this may take 10-15minutes) ....")
 	if err := cmd.Run(); err != nil {

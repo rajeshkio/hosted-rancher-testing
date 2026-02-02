@@ -1,15 +1,58 @@
 package main
 
 import (
+	"context"
+	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"rajeskio/rancher-tests/pkg/config"
 	"rajeskio/rancher-tests/pkg/rancher"
 	"rajeskio/rancher-tests/pkg/terraform"
-	"time"
+	"syscall"
 )
 
 func main() {
+
+	clusterNameFlag := flag.String("cluster-name", "", "Cluster name (default: rancher-test)")
+	//destroyFlag := flag.Bool("destroy", false, "Destroy cluster after tests")
+	flag.Parse()
+
+	var clusterName string
+	if *clusterNameFlag != "" {
+		clusterName = *clusterNameFlag
+	} else {
+		clusterName = "rancher-test"
+		fmt.Println("  Using default cluster name: rancher-test")
+		fmt.Println("   Use --cluster-name flag to specify a different name")
+		fmt.Println("   Example: go run cmd/main.go --cluster-name my-test\n")
+	}
+
+	_, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var tfRunner *terraform.Runner
+	var clusterCreated bool
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
+	go func() {
+		<-sigChan
+		fmt.Println("\n\n Interrupt received (Ctrl+C)")
+		fmt.Println("Terraform may still be running...")
+
+		if clusterCreated && tfRunner != nil {
+			fmt.Println("\n WARNING: Cluster resources were created")
+			fmt.Println("To clean up run:")
+			fmt.Printf("  cd %s && terraform destroy --auto-approve\n", tfRunner.WorkDir)
+		}
+
+		fmt.Println("\nExisting...")
+		cancel()
+		os.Exit(1)
+	}()
+
 	fmt.Println("=== Step 1: Reading configuration ===")
 	cfg, err := config.ReadConfig()
 	if err != nil {
@@ -41,7 +84,7 @@ func main() {
 	fmt.Printf("%s credentials configured\n", cfg.Provider)
 
 	fmt.Println("\n=== Step 4: Initializing Terraform ===")
-	tfRunner := terraform.NewRunner("./terraform", cfg.Provider)
+	tfRunner = terraform.NewRunner("./terraform", cfg.Provider)
 
 	if err := tfRunner.Init(); err != nil {
 		fmt.Println("Error:", err)
@@ -49,9 +92,6 @@ func main() {
 	}
 
 	fmt.Println("\n=== Step 5: Preparing cluster configuration ===")
-	clusterName := fmt.Sprintf("test-%d", time.Now().Unix())
-	fmt.Printf("Cluster name: %s\n", clusterName)
-
 	if err := tfRunner.WriteTfvars(cfg.RancherURL, cfg.Token, cfg.K3sVersion, clusterName, providerVars); err != nil {
 		fmt.Println("Error:", err)
 		os.Exit(1)

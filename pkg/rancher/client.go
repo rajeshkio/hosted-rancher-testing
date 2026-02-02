@@ -46,3 +46,17 @@ func (c *Client) VerifyLogin() error {
 	}
 	return nil
 }
+
+func (c *Client) GetKubeconfig(clusterID string) (string, error) {
+	cluster, err := c.client.Cluster.ByID(clusterID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get cluster %s: %w", clusterID, err)
+	}
+
+	resp, err := c.client.Cluster.ActionGenerateKubeconfig(cluster)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate kubeconfig for cluster %s: %w", clusterID, err)
+	}
+	fmt.Println(resp.Config)
+	return resp.Config, nil
+}
