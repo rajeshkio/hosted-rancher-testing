@@ -107,11 +107,6 @@ export DO_SIZE="s-2vcpu-4gb"         # Default: s-2vcpu-4gb
 3. Generate New Token
 4. Copy the token (format: `dop_v1_xxxxx`)
 
-**Change agent-tls-mode to system-store**
-1. Login to Rancher UI
-2. Click Global Settings --> Settings --> agent-tls-mode
-3. Switch to system-store and save
-
 ## Usage
 
 ### Basic Usage
