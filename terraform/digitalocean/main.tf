@@ -13,6 +13,11 @@ provider "rancher2" {
   insecure  = true
 }
 
+resource "rancher2_setting" "agent_tls_mode" {
+  name  = "agent-tls-mode"
+  value = "system-store"
+}
+
 resource "rancher2_cloud_credential" "do" {
   name = "${var.cluster_name}-cred"
 
@@ -51,8 +56,11 @@ resource "rancher2_cluster_v2" "downstream"  {
       }
     }
   }
+
+  depends_on = [rancher2_setting.agent_tls_mode]
 }
 
 resource "rancher2_cluster_sync" "downstream" {
   cluster_id = rancher2_cluster_v2.downstream.cluster_v1_id
 }
+

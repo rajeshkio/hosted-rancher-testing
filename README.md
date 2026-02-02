@@ -17,15 +17,18 @@ This allows you to test different Rancher and K3s versions quickly and consisten
 ## Prerequisites
 
 ### Required Tools
+
 - **Go** Built and tested on 1.25
 - **Terraform** Build and tested on v1.13.4
 - **kubectl** (for manual verification)
 
 ### Required Accounts
+
 - **Rancher cluster** (already running)
 - **DigitalOcean account** with API token
 
 ### Required Access
+
 - Rancher API token with cluster creation permissions
 - DigitalOcean API token
 
@@ -75,7 +78,7 @@ Set these before running:
 
 ```bash
 # Required: Rancher configuration
-export RANCHER_VERSION="2.13.2"
+export RANCHER_VERSION="2.13.2"  # Rancher version to deploy in the downstream cluster
 export RANCHER_URL="https://your-rancher.example.com"
 export RANCHER_TOKEN="token-xxxxx:yyyyy"
 
@@ -96,12 +99,14 @@ export DO_SIZE="s-2vcpu-4gb"         # Default: s-2vcpu-4gb
 ### Getting Credentials
 
 **Rancher Token:**
+
 1. Login to Rancher UI
 2. Click your user icon → API & Keys
 3. Create API Key
 4. Copy the token (format: `token-xxxxx:yyyyy`)
 
 **DigitalOcean Token:**
+
 1. Login to DigitalOcean
 2. Go to API → Tokens/Keys
 3. Generate New Token
@@ -112,6 +117,7 @@ export DO_SIZE="s-2vcpu-4gb"         # Default: s-2vcpu-4gb
 ### Basic Usage
 
 **Create and test a cluster:**
+
 ```bash
 export RANCHER_VERSION="2.13.2"
 export K3S_VERSION="v1.31.14+k3s1"
@@ -123,6 +129,7 @@ go run cmd/main.go --cluster-name my-test
 ```
 
 **What happens:**
+
 1. Connects to Rancher
 2. Creates downstream K3s cluster on DigitalOcean (10-15 minutes)
 3. Gets kubeconfig
@@ -144,6 +151,7 @@ go run cmd/main.go --cluster-name my-cluster --destroy
 ```
 
 **Cleanup:**
+
 ```bash
 go run cmd/main.go --cluster-name my-test --destroy
 ```
@@ -153,6 +161,7 @@ go run cmd/main.go --cluster-name my-test --destroy
 Create your own test application:
 
 **manifests/custom-app.yaml:**
+
 ```yaml
 apiVersion: v1
 kind: Namespace
@@ -177,18 +186,20 @@ spec:
         app: my-app
     spec:
       containers:
-      - name: app
-        image: your-image:tag
-        ports:
-        - containerPort: 8080
+        - name: app
+          image: your-image:tag
+          ports:
+            - containerPort: 8080
 ```
 
 **Use it:**
+
 ```bash
 go run cmd/main.go --manifest manifests/custom-app.yaml
 ```
 
 **Note:** Make sure your manifest includes:
+
 - A namespace resource
 - Labels (app: your-app-name) e.g app: nginx
 - The tool will look for pods with that label
@@ -270,6 +281,7 @@ To destroy:
 ### Issue: "DO_TOKEN not set"
 
 **Solution:**
+
 ```bash
 export DO_TOKEN="dop_v1_your_token_here"
 ```
@@ -277,6 +289,7 @@ export DO_TOKEN="dop_v1_your_token_here"
 ### Issue: "Terraform init failed"
 
 **Solution:**
+
 ```bash
 # Clean and reinitialize
 cd terraform/digitalocean
@@ -285,15 +298,16 @@ terraform init
 cd ../..
 ```
 
-
 ### Issue: "Cluster stuck in Provisioning"
 
 **Check:**
+
 1. Rancher UI → Cluster Management → Your cluster
 2. Check events and logs
 3. Verify DigitalOcean droplets are created (DO console)
 
 **Debug:**
+
 ```bash
 cd terraform/digitalocean
 terraform show  # See current state
@@ -315,11 +329,13 @@ terraform destroy -auto-approve
 ### Issue: "No pods found"
 
 **Check manifest:**
+
 - Does it have a namespace?
 - Does it have labels (app: your-app)?
 - Is the image accessible?
 
 **Verify manually:**
+
 ```bash
 # Get kubeconfig from Rancher UI and save to file
 kubectl --kubeconfig=/path/to/kubeconfig get pods -A
@@ -330,12 +346,14 @@ kubectl --kubeconfig=/path/to/kubeconfig get pods -A
 ### Adding a New Cloud Provider
 
 1. **Create terraform config:**
+
 ```bash
 mkdir terraform/aws
 # Add main.tf, variables.tf, outputs.tf
 ```
 
 2. **Update getProviderVars in main.go:**
+
 ```go
 case "aws":
     vars["aws_access_key"] = os.Getenv("AWS_ACCESS_KEY_ID")
@@ -344,6 +362,7 @@ case "aws":
 ```
 
 3. **Test:**
+
 ```bash
 export CLOUD_PROVIDER="aws"
 export AWS_ACCESS_KEY_ID="..."

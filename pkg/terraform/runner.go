@@ -57,7 +57,8 @@ cluster_name = "%s"
 `, rancherURL, rancherToken, k3sVersion, clusterName)
 
 	for key, value := range providerVars {
-		content += fmt.Sprintf(`%s = "%s"`, key, value)
+		content += fmt.Sprintf(`%s = "%s"
+`, key, value)
 	}
 
 	if err := os.WriteFile(tfvarsPath, []byte(content), 0644); err != nil {

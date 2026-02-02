@@ -18,7 +18,7 @@ func main() {
 
 	clusterNameFlag := flag.String("cluster-name", "", "Cluster name (default: rancher-test)")
 	manifestPath := flag.String("manifest", "manifests/nginx.yaml", "Path to test manifest")
-	//destroyFlag := flag.Bool("destroy", false, "Destroy cluster after tests")
+	destroyFlag := flag.Bool("destroy", false, "Destroy cluster after tests")
 	flag.Parse()
 
 	var clusterName string
@@ -98,6 +98,20 @@ func main() {
 	if err := tfRunner.WriteTfvars(cfg.RancherURL, cfg.Token, cfg.K3sVersion, clusterName, providerVars); err != nil {
 		fmt.Println("Error:", err)
 		os.Exit(1)
+	}
+
+	if *destroyFlag {
+		fmt.Println("\n=== Destroy Mode ===")
+		if err := tfRunner.WriteTfvars(cfg.RancherURL, cfg.Token, cfg.K3sVersion, clusterName, providerVars); err != nil {
+			fmt.Println("Error:", err)
+			os.Exit(1)
+		}
+		if err := tfRunner.Destroy(); err != nil {
+			fmt.Println("Error:", err)
+			os.Exit(1)
+		}
+		fmt.Println("Cluster destroyed")
+		return
 	}
 
 	// Step 6: Create cluster
