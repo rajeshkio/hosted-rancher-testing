@@ -79,7 +79,7 @@ Copy example and edit values:
 cp .env.example .env
 ```
 
-###2. Set your credentials in .env
+### 2. Set your credentials in .env
 
 ```bash
 # Required: Rancher configuration
