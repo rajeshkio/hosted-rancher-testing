@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/joho/godotenv"
 )
 
 type Config struct {
@@ -15,6 +17,9 @@ type Config struct {
 }
 
 func ReadConfig() (*Config, error) {
+	if err := godotenv.Load(); err != nil {
+		return nil, fmt.Errorf("error loading .env file: %w", err)
+	}
 	cfg := &Config{}
 	cfg.RancherVersion = os.Getenv("RANCHER_VERSION")
 	cfg.K3sVersion = os.Getenv("K3S_VERSION")

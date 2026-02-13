@@ -72,9 +72,14 @@ rancher-tests/
 
 ## Configuration
 
-### Environment Variables
+### 1. Create .env file
 
-Set these before running:
+Copy example and edit values:
+```bash
+cp .env.example .env
+```
+
+###2. Set your credentials in .env
 
 ```bash
 # Required: Rancher configuration

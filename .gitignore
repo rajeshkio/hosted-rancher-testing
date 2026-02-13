@@ -3,3 +3,4 @@ terraform/digitalocean/.terraform/
 terraform/digitalocean/terraform.tfstate
 terraform/digitalocean/terraform.tfstate.backup
 terraform/digitalocean/terraform.tfvars
+.env
