@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
+	"syscall"
+	"time"
+
 	"github.com/rajeshkio/hosted-rancher-testing/pkg/config"
 	"github.com/rajeshkio/hosted-rancher-testing/pkg/kubectl"
 	"github.com/rajeshkio/hosted-rancher-testing/pkg/rancher"
 	"github.com/rajeshkio/hosted-rancher-testing/pkg/terraform"
-	"strings"
-	"syscall"
 )
 
 func main() {
@@ -95,10 +97,9 @@ func main() {
 	}
 
 	fmt.Println("\n=== Step 5: Preparing cluster configuration ===")
-	if err := tfRunner.WriteTfvars(cfg.RancherURL, cfg.Token, cfg.K3sVersion, clusterName, providerVars); err != nil {
-		fmt.Println("Error:", err)
-		os.Exit(1)
-	}
+	fmt.Println("\n=== Step 5: Preparing cluster configuration ===")
+	state := terraform.LoadState()
+	fmt.Printf("  cluster_deployed=%v cluster_upgraded=%v\n", state.ClusterDeployed, state.ClusterUpgraded)
 
 	if *destroyFlag {
 		fmt.Println("\n=== Destroy Mode ===")
@@ -110,23 +111,39 @@ func main() {
 			fmt.Println("Error:", err)
 			os.Exit(1)
 		}
+		terraform.ClearState()
 		fmt.Println("Cluster destroyed")
 		return
 	}
 
-	// Step 6: Create cluster
 	fmt.Println("\n=== Step 6: Creating downstream cluster ===")
-	if err := tfRunner.Apply(); err != nil {
-		fmt.Println("Error:", err)
-		os.Exit(1)
+	if !state.ClusterDeployed {
+		if err := tfRunner.WriteTfvars(cfg.RancherURL, cfg.Token, cfg.K3sVersion, clusterName, providerVars); err != nil {
+			fmt.Println("Error: ", err)
+			os.Exit(1)
+		}
+		if err := tfRunner.Apply(); err != nil {
+			fmt.Println("Error:", err)
+			os.Exit(1)
+		}
+		state.ClusterDeployed = true
+		state.CurrentVersion = cfg.K3sVersion
+		if err := terraform.SaveState(state); err != nil {
+			fmt.Println("Warning: could not save state:", err)
+		}
+	} else {
+		fmt.Println("  Skipping, cluster already deployed")
 	}
 
-	// Step 7: Get cluster details
 	fmt.Println("\n=== Step 7: Checking cluster details ===")
 	outputs, err := tfRunner.GetOutputs()
 	if err != nil {
 		fmt.Println("Error:", err)
 		os.Exit(1)
+	}
+	if state.ClusterID == "" {
+		state.ClusterID = outputs.ClusterID
+		terraform.SaveState(state)
 	}
 
 	fmt.Println("\n=== Step 8: Getting the kubeconfig ===")
@@ -147,44 +164,164 @@ func main() {
 	}
 	defer k8s.Cleanup()
 
-	fmt.Println("\n===Step 10: Deplying test application ===")
-	if err := k8s.Apply(*manifestPath); err != nil {
-		fmt.Println("Error:", err)
+	// --- Step 10: Deploying test application ---
+	fmt.Println("\n=== Step 10: Deploying test application ===")
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	if err := k8s.Apply(ctx, *manifestPath); err != nil {
+		fmt.Println("Error deploying manifest:", err)
 		os.Exit(1)
 	}
 	fmt.Println("Application deployed")
 
-	fmt.Println("\n===Step 11: Waiting for pod to be ready ===")
-	pods, err := k8s.GetPods("test-app", "app=nginx")
+	// --- Global Health Check ---
+	fmt.Println("\n=== Checking for Unhealthy Pods (Cluster-wide) ===")
+	// Use a fresh context for health check
+	healthCtx, healthCancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer healthCancel()
+	fmt.Println("Waiting for all cluster pods to reach Ready state...")
+	if err := k8s.WaitForAllPodsReady(healthCtx); err != nil {
+		fmt.Printf("\nTEST FAILED: Pods are not ready: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println("All pods are healthy/running.")
+
+	fmt.Println("\n=== Step 11: Waiting for test-app pod to be ready ===")
+	waitCtx, waitCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer waitCancel()
+
+	pods, err := k8s.GetPods(waitCtx, "test-app", "app=nginx")
 	if err != nil || len(pods) == 0 {
-		fmt.Println("Error: No pods found")
+		fmt.Println("Error: No pods found in namespace test-app")
 		os.Exit(1)
 	}
 
-	fmt.Printf("Found pod: %s\n", pods[0])
-	if err := k8s.WaitForPod("test-app", pods[0], 120); err != nil {
-		fmt.Println("Error:", err)
+	fmt.Printf("Found pod: %s. Waiting for 'Ready' condition...\n", pods[0])
+	if err := k8s.WaitForPod(waitCtx, "test-app", pods[0]); err != nil {
+		fmt.Println("Error waiting for pod:", err)
 		os.Exit(1)
 	}
 
 	fmt.Printf("\n=== Step 12: Testing pod logs ===")
-	logs, err := k8s.Logs("test-app", pods[0], 10)
+	logCtx, logCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer logCancel()
+
+	logs, err := k8s.Logs(logCtx, "test-app", pods[0], 10)
 	if err != nil {
 		fmt.Println("Error:", err)
 		os.Exit(1)
 	}
-
-	fmt.Printf("logs retrieved (%d bytes)\n", len(logs))
-	fmt.Println("First few lines:")
-	fmt.Println(logs)
+	fmt.Printf(" logs retrieved (%d bytes)\n", len(logs))
 
 	fmt.Println("\n=== Step 13: Testing pod exec ===")
-	output, err := k8s.Exec("test-app", pods[0], []string{"nginx", "-v"})
+	execCtx, execCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer execCancel()
+
+	output, err := k8s.Exec(execCtx, "test-app", pods[0], []string{"nginx", "-v"})
 	if err != nil {
 		fmt.Println("Error:", err)
 		os.Exit(1)
 	}
 	fmt.Printf("Exec successful: %s\n", output)
+
+	if cfg.K3sUpgradeVersion != "" {
+		fmt.Println("\n" + strings.Repeat("=", 50))
+		fmt.Println("KUBERNTES UPGRADE TEST")
+		fmt.Println(strings.Repeat("=", 50))
+
+		fmt.Println("\n=== Step 14: Current cluster Kubernetes version ===")
+		preCluster, err := client.GetCluster(outputs.ClusterID)
+		if err != nil {
+			fmt.Println("Error getting cluster:", err)
+			os.Exit(1)
+		}
+		if preCluster.K3sConfig != nil {
+			fmt.Printf(" Current version: %s\n", preCluster.K3sConfig.Version)
+		}
+		fmt.Printf(" Upgrade target: %s\n", cfg.K3sUpgradeVersion)
+
+		fmt.Println("\n=== Step 15: Triggering Kubernetes version upgrade ===")
+		if !state.ClusterUpgraded {
+			if err := tfRunner.WriteTfvars(cfg.RancherURL, cfg.Token, cfg.K3sUpgradeVersion, clusterName, providerVars); err != nil {
+				fmt.Println("Error writing updated tfvars:", err)
+				os.Exit(1)
+			}
+
+			if err := tfRunner.Apply(); err != nil {
+				fmt.Println("Error applying terraform upgrade:", err)
+				os.Exit(1)
+			}
+			fmt.Println("Upgrade apply completed")
+
+			fmt.Println("\n=== Step 16: Waiting for cluster upgrade to complete ===")
+			fmt.Println("This may take 10-15 minutes ...")
+			if err := client.WaitForClusterReady(outputs.ClusterID, 15*time.Minute); err != nil {
+				fmt.Println("Error waiting for upgrade:", err)
+				os.Exit(1)
+			}
+			fmt.Println("Cluster upgrade completed")
+		} else {
+			fmt.Println("  Skipping, cluster already upgraded")
+		}
+
+		fmt.Println("\n === Step 17: Re-fetching kubeconfig after upgrade ===")
+		k8s.Cleanup()
+		newKubeconfig, err := client.GetKubeconfig(outputs.ClusterID)
+		if err != nil {
+			fmt.Println("Error getting kubeconfig after upgrade:", err)
+			os.Exit(1)
+		}
+
+		k8s, err = kubectl.NewRunner(newKubeconfig)
+		if err != nil {
+			fmt.Println("Error setiing up kubectl: ", err)
+			os.Exit(1)
+		}
+
+		defer k8s.Cleanup()
+		fmt.Println("kubeconfig refreshed")
+
+		fmt.Println("\n === Step 18: Verifying node Kubernetes versions ===")
+		nodeCtx, nodeCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer nodeCancel()
+
+		nodeVersions, err := k8s.GetNodeVersions(nodeCtx)
+		if err != nil {
+			fmt.Println("Error getting node versions:", err)
+			os.Exit(1)
+		}
+		for _, nv := range nodeVersions {
+			fmt.Printf("  %s\n", nv)
+		}
+
+		fmt.Println("\n=== Step 19: Post-upgrade health check ===")
+		postHealthCtx, postHealthCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer postHealthCancel()
+
+		fmt.Println("Waiting for all cluster pods to reach Ready state...")
+		if err := k8s.WaitForAllPodsReady(postHealthCtx); err != nil {
+			fmt.Printf("\nUPGRADE TEST FAILED: Pods did not stabilize after upgrade")
+			os.Exit(1)
+		}
+		fmt.Println("All pods are healthy after upgrade")
+
+		// Re-verify the test app pod
+		postWaitCtx, postWaitCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer postWaitCancel()
+
+		postPods, err := k8s.GetPods(postWaitCtx, "test-app", "app=nginx")
+		if err != nil || len(postPods) == 0 {
+			fmt.Println("Error: test-app pods not found after upgrade")
+			os.Exit(1)
+		}
+		fmt.Printf("Test app pod %s still running after upgrade\n", postPods[0])
+
+		fmt.Println("\n" + strings.Repeat("=", 50))
+		fmt.Println("UPGRADE TEST PASSED!")
+		fmt.Printf("  %s -> %s\n", cfg.K3sVersion, cfg.K3sUpgradeVersion)
+		fmt.Println(strings.Repeat("=", 50))
+	}
 
 	fmt.Println("\n" + strings.Repeat("=", 50))
 	fmt.Println("ALL TESTS PASSED!")
@@ -198,6 +335,9 @@ func main() {
 	fmt.Println("  Application deployment")
 	fmt.Println("  Pod logs")
 	fmt.Println("  Pod exec")
+	if cfg.K3sUpgradeVersion != "" {
+		fmt.Printf("  Kubernetes upgrade (%s -> %s)\n", cfg.K3sVersion, cfg.K3sUpgradeVersion)
+	}
 	fmt.Println("\nTo destroy:")
 	fmt.Printf("  go run cmd/main.go --cluster-name %s --destroy\n", clusterName)
 

@@ -3,6 +3,7 @@ package rancher
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/rancher/norman/clientbase"
 	managementClient "github.com/rancher/rancher/pkg/client/generated/management/v3"
@@ -59,4 +60,37 @@ func (c *Client) GetKubeconfig(clusterID string) (string, error) {
 	}
 	//	fmt.Println(resp.Config)
 	return resp.Config, nil
+}
+
+func (c *Client) GetCluster(clusterID string) (*managementClient.Cluster, error) {
+	cluster, err := c.client.Cluster.ByID(clusterID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get cluster %s: %w", clusterID, err)
+	}
+
+	fmt.Printf("  Cluster ID: %s\n", cluster.ID)
+	return cluster, nil
+}
+
+func (c *Client) WaitForClusterReady(clusterID string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	pollInterval := 30 * time.Second
+
+	for time.Now().Before(deadline) {
+		cluster, err := c.client.Cluster.ByID(clusterID)
+		if err != nil {
+			fmt.Printf(" Warning: error polling cluster: %v (retrying...)\n", err)
+			time.Sleep(pollInterval)
+			continue
+		}
+
+		fmt.Printf(" Cluster state: %s | transitioning: %s\n", cluster.State, cluster.TransitioningMessage)
+
+		if cluster.State == "active" && cluster.Transitioning != "yes" {
+			return nil
+		}
+
+		time.Sleep(pollInterval)
+	}
+	return fmt.Errorf("cluster %s did not become active within %v", clusterID, timeout)
 }

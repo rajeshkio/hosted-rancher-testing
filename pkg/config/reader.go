@@ -9,11 +9,12 @@ import (
 )
 
 type Config struct {
-	RancherVersion string
-	K3sVersion     string
-	RancherURL     string
-	Token          string
-	Provider       string
+	RancherVersion    string
+	K3sVersion        string
+	K3sUpgradeVersion string
+	RancherURL        string
+	Token             string
+	Provider          string
 }
 
 func ReadConfig() (*Config, error) {
@@ -26,6 +27,7 @@ func ReadConfig() (*Config, error) {
 	cfg.RancherURL = os.Getenv("RANCHER_URL")
 	cfg.Token = os.Getenv("RANCHER_TOKEN")
 	cfg.Provider = os.Getenv("CLOUD_PROVIDER")
+	cfg.K3sUpgradeVersion = os.Getenv("K3S_UPGRADE_VERSION")
 	if cfg.Provider == "" {
 		cfg.Provider = "digitalocean"
 	}

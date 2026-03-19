@@ -20,6 +20,15 @@ type Output struct {
 	Provider    string
 }
 
+type RunState struct {
+	ClusterDeployed bool   `json:"cluster_deployed"`
+	ClusterUpgraded bool   `json:"cluster_upgraded"`
+	ClusterID       string `json:"cluster_id"`
+	CurrentVersion  string `json:"current_version"`
+}
+
+const stateFile = "run_state.json"
+
 func NewRunner(baseDir, provider string) *Runner {
 	workDir := filepath.Join(baseDir, provider)
 
@@ -28,6 +37,29 @@ func NewRunner(baseDir, provider string) *Runner {
 		Provider: provider,
 	}
 
+}
+
+func LoadState() *RunState {
+	data, err := os.ReadFile(stateFile)
+	if err != nil {
+		return &RunState{}
+	}
+	var state RunState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return &RunState{}
+	}
+	return &state
+}
+
+func SaveState(state *RunState) error {
+	data, err := json.MarshalIndent(state, "", " ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(stateFile, data, 0644)
+}
+func ClearState() {
+	os.Remove(stateFile)
 }
 
 func (r *Runner) Init() error {

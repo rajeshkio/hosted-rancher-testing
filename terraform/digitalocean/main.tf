@@ -37,8 +37,8 @@ resource "rancher2_machine_config_v2" "do_nodes" {
   }
 }
 
-resource "rancher2_cluster_v2" "downstream"  {
-  name = var.cluster_name
+resource "rancher2_cluster_v2" "downstream" {
+  name               = var.cluster_name
   kubernetes_version = var.k3s_version
 
   rke_config {
