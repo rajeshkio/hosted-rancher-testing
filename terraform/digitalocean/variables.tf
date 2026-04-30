@@ -49,5 +49,5 @@ variable "do_size" {
 variable "do_image" {
   description = "DigitalOcean image"
   type        = string
-  default     = "ubuntu-25-04-x64"
+  default     = "ubuntu-24-04-x64"
 }
